@@ -22,6 +22,7 @@ export type Profile = {
   name: string;
   title: string;
   description: string;
+  accentColor: string;
   endingTitle: string;
   endingDescription: string;
   coverTheme: string;
@@ -38,6 +39,7 @@ export const emptyScene = (): Scene => ({
 });
 export const emptyProfile: Profile = {
   name: "", title: "", description: "", endingTitle: "", endingDescription: "",
+  accentColor: "#52657d",
   coverTheme: "", coverLayout: "split", coverAlign: "left", coverPhotoFit: "cover", coverPhotoX: 50, coverPhotoY: 50,
 };
 
@@ -54,6 +56,7 @@ export function loadDocument(): { scenes: Scene[]; profile: Profile } {
     : [emptyScene()];
   const savedProfile = readJson(profileKey);
   const profile = { ...emptyProfile, ...(savedProfile && typeof savedProfile === "object" ? savedProfile as Partial<Profile> : {}) };
+  if (!/^#[0-9a-fA-F]{6}$/.test(profile.accentColor)) profile.accentColor = emptyProfile.accentColor;
   const oldDefaults: Partial<Profile> = {
     name: "나의 이야기", title: "나의 이야기를\n만들어보세요.",
     description: "기억하고 싶은 순간을 한 장씩 담아보세요.",

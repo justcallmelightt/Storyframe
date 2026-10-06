@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type PointerEvent, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ChangeEvent, type PointerEvent, type KeyboardEvent } from "react";
 import Link from "next/link";
 /* Blob URLs are local browser images; next/image cannot optimize or serve them. */
 /* eslint-disable @next/next/no-img-element */
@@ -14,6 +14,20 @@ const themes: Record<string, string> = {
   "story-card-dark": "theme-dark", "story-card-lilac": "theme-lilac",
   "story-card-warm": "theme-warm", "story-card-now": "theme-plum",
 };
+function readableAccent(hex: string) {
+  const channels = [1, 3, 5].map((index) => parseInt(hex.slice(index, index + 2), 16));
+  const linear = (channel: number) => {
+    const value = channel / 255;
+    return value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4;
+  };
+  const background = .92;
+  for (let blend = 0; blend <= 1; blend += .05) {
+    const darkened = channels.map((channel) => Math.round(channel * (1 - blend)));
+    const value = .2126 * linear(darkened[0]) + .7152 * linear(darkened[1]) + .0722 * linear(darkened[2]);
+    if ((background + .05) / (value + .05) >= 4.5) return `#${darkened.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
+  }
+  return "#1d1d1f";
+}
 const springs = new WeakMap<HTMLElement, { frame: number; offset: number; velocity: number }>();
 function cancelSpring(node: HTMLElement) {
   const spring = springs.get(node);
@@ -285,34 +299,33 @@ export function StoryframeApp({ readOnly = false }: { readOnly?: boolean }) {
   };
 
   if (!ready) return <main className="storyframe-app storyframe-loading">이야기를 여는 중…</main>;
-  return <div className={`storyframe-app${readOnly ? " read-mode" : ""}`}>
+  return <div className={`storyframe-app${readOnly ? " read-mode" : ""}`} style={{ "--accent-color": profile.accentColor, "--accent-ink": readableAccent(profile.accentColor) } as CSSProperties}>
     <a className="skip-link" href="#storyWebsite">{readOnly ? "이야기 본문으로 건너뛰기" : "이야기 편집으로 건너뛰기"}</a>
     <header className="app-header"><div className="header-inner">
       <Link className="brand" href="/" aria-label="STORYFRAME 첫 화면">STORYFRAME</Link>
       <span className="header-purpose">{readOnly ? "독자 화면" : "나의 이야기 웹사이트 만들기"}</span>
-      <div className="header-actions"><span id="saveStatus" role="status" hidden={readOnly}>{status}</span><Link className="read-link" href={readOnly ? "/" : "/story"}>{readOnly ? "내 이야기 편집하기 ↗" : <>독자 화면에서 읽기 <span aria-hidden="true">↗</span></>}</Link></div>
+      <div className="header-actions">{!readOnly && <label className="accent-picker">대표색<input type="color" aria-label="대표색 선택" value={profile.accentColor} onChange={(event) => changeProfile("accentColor", event.target.value)} /></label>}<span id="saveStatus" role="status" hidden={readOnly}>{status}</span><Link className="read-link" href={readOnly ? "/" : "/story"}>{readOnly ? "내 이야기 편집하기 ↗" : <>독자 화면에서 읽기 <span aria-hidden="true">↗</span></>}</Link></div>
     </div></header>
     <main>
-      {!readOnly && <div className="site-intro"><div><span className="site-intro-label">STORYFRAME / WEB STORY BUILDER</span><h1>당신의 순간을 <em>하나의 웹 이야기</em>로.</h1><p>표지와 시간순 장면을 채우면, 아래로 스크롤하며 읽는 개인 웹사이트가 됩니다. 지금 보이는 페이지에서 바로 수정하세요.</p></div><div className="site-intro-flow" aria-label="만드는 순서"><span><b>01</b> 표지 작성</span><span><b>02</b> 장면과 사진 추가</span><span><b>03</b> 완성 화면 읽기</span></div></div>}
+      {!readOnly && <div className="site-intro"><div><h1>당신의 순간을 <em>하나의 웹 이야기</em>로.</h1><p>표지와 시간순 장면을 채우면, 아래로 스크롤하며 읽는 개인 웹사이트가 됩니다. 지금 보이는 페이지에서 바로 수정하세요.</p></div></div>}
       <div className="site-frame" id="storyWebsite">
         {!readOnly && <div className="site-frame-bar"><span className="site-frame-domain">나의 이야기 · 웹페이지 편집 중</span><span className="site-frame-scroll">아래로 스크롤하며 작성 ↓</span></div>}
         <section className={`story-cover cover-${profile.coverTheme || "ivory"} layout-${profile.coverLayout} align-${profile.coverAlign}`} aria-label="이야기 표지">
           {coverUrl && <div className="cover-photo" id="coverPhoto"><img id="coverImage" src={coverUrl} alt="표지에 넣은 사진" style={{ objectFit: profile.coverPhotoFit, objectPosition: `${profile.coverPhotoX}% ${profile.coverPhotoY}%` }} /></div>}
-          <div className="cover-content"><span className="section-eyebrow">INTRO / 나의 이야기</span>
+          <div className="cover-content">
             <input id="profileName" maxLength={24} aria-label="표지에 표시할 이름" placeholder="이름 또는 별명" value={profile.name} readOnly={readOnly} tabIndex={readOnly ? -1 : undefined} onChange={(event) => changeProfile("name", event.target.value)} />
             <Textarea id="profileTitle" rows={2} maxLength={80} aria-label="이야기 제목" placeholder="이야기의 제목을 적어주세요" value={profile.title} readOnly={readOnly} tabIndex={readOnly ? -1 : undefined} onChange={(value) => changeProfile("title", value)} />
             <Textarea id="profileDescription" rows={2} maxLength={200} aria-label="이야기 소개" placeholder="이 이야기를 소개하는 한두 문장" value={profile.description} readOnly={readOnly} tabIndex={readOnly ? -1 : undefined} onChange={(value) => changeProfile("description", value)} />
           </div>
           {!readOnly && <div className="cover-tools"><label className="cover-upload">＋ 표지 사진 선택<input id="coverFile" type="file" accept="image/jpeg,image/png,image/webp,image/avif" hidden onChange={(event) => photoChanged(event, "cover")} /></label><details className="cover-options"><summary>표지 꾸미기</summary><div className="cover-options-panel"><label>표지 배경<select id="coverTheme" value={profile.coverTheme} onChange={(event) => changeProfile("coverTheme", event.target.value)}><option value="">라이트 그레이</option><option value="dark">차콜</option><option value="warm">샌드</option><option value="lilac">라일락</option><option value="plum">플럼</option></select></label><label>사진 배치<select id="coverLayout" value={profile.coverLayout} onChange={(event) => changeProfile("coverLayout", event.target.value as Profile["coverLayout"])}><option value="split">글 옆에 사진</option><option value="background">사진을 배경으로</option></select></label><label>글 정렬<select id="coverAlign" value={profile.coverAlign} onChange={(event) => changeProfile("coverAlign", event.target.value as Profile["coverAlign"])}><option value="left">왼쪽</option><option value="center">가운데</option></select></label>{coverUrl && <button id="removeCoverPhoto" type="button" onClick={() => void deletePhoto("cover")}>표지 사진 제거</button>}</div></details></div>}
-          <span className="cover-bottom">01 / START</span>
         </section>
-        <section className="story-chapters" aria-labelledby="chaptersTitle"><div className="chapter-heading"><span>CHAPTERS / 시간순으로 읽는 이야기</span><h2 id="chaptersTitle">기억하고 싶은 순간들</h2>{!readOnly && <p>각 장면이 이야기의 한 구간이 됩니다. 오른쪽 위 손잡이를 끌어 순서를 바꿀 수 있어요.</p>}</div>
+        <section className="story-chapters" aria-labelledby="chaptersTitle"><div className="chapter-heading"><h2 id="chaptersTitle">기억하고 싶은 순간들</h2>{!readOnly && <p>각 장면이 이야기의 한 구간이 됩니다. 오른쪽 위 손잡이를 끌어 순서를 바꿀 수 있어요.</p>}</div>
           <div id="sceneList" className="scene-list" ref={listRef} onPointerMove={moveDrag} onPointerUp={(event) => finishDrag(event)} onPointerCancel={(event) => finishDrag(event, true)} onLostPointerCapture={(event) => finishDrag(event, true)}>
             {scenes.map((scene, index) => <SceneCard key={scene.id} scene={scene} index={index} count={scenes.length} blob={photos.get(index)} readOnly={readOnly} confirmDelete={confirmDelete === scene.id} onChange={(key, value) => changeScene(scene.id, key, value)} onPhotoChange={(event) => photoChanged(event, index)} onPhotoDelete={() => void deletePhoto(index)} onDelete={() => void deleteScene(index)} onDragStart={(event) => startDrag(event, index)} onDragKey={(event) => keyboardDrag(event, index)} />)}
           </div>
           {!readOnly && scenes.length < pageLimit && <button id="addScene" className="add-scene" type="button" disabled={busy} onClick={() => { setScenes((current) => [...current, emptyScene()]); requestAnimationFrame(() => listRef.current?.lastElementChild?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "center" })); }}>＋ 새 페이지 추가 <span>이야기의 다음 장면</span></button>}
         </section>
-        <section className="story-ending" aria-label="이야기 마지막 문장"><span className="section-eyebrow">ENDING / 마지막 문장</span><Textarea id="endingTitle" rows={2} maxLength={80} aria-label="마지막 장면 제목" placeholder="마지막에 남길 제목" value={profile.endingTitle} readOnly={readOnly} tabIndex={readOnly ? -1 : undefined} onChange={(value) => changeProfile("endingTitle", value)} /><Textarea id="endingDescription" rows={2} maxLength={200} aria-label="마지막 장면 문장" placeholder="독자에게 남길 한 문장" value={profile.endingDescription} readOnly={readOnly} tabIndex={readOnly ? -1 : undefined} onChange={(value) => changeProfile("endingDescription", value)} /><span className="ending-mark">STORYFRAME</span></section>
+        <section className="story-ending" aria-label="이야기 마지막 문장"><Textarea id="endingTitle" rows={2} maxLength={80} aria-label="마지막 장면 제목" placeholder="마지막에 남길 제목" value={profile.endingTitle} readOnly={readOnly} tabIndex={readOnly ? -1 : undefined} onChange={(value) => changeProfile("endingTitle", value)} /><Textarea id="endingDescription" rows={2} maxLength={200} aria-label="마지막 장면 문장" placeholder="독자에게 남길 한 문장" value={profile.endingDescription} readOnly={readOnly} tabIndex={readOnly ? -1 : undefined} onChange={(value) => changeProfile("endingDescription", value)} /></section>
       </div>
       {!readOnly && <footer className="editor-footer"><span>글과 사진은 이 브라우저에 자동 저장됩니다. 다른 기기와 동기화되거나 공개되지는 않습니다.</span><Link href="/story">독자 화면에서 읽기 ↗</Link></footer>}
     </main>
@@ -329,7 +342,7 @@ function SceneCard({ scene, index, count, blob, readOnly, confirmDelete, onChang
   const url = useBlobUrl(blob);
   const hasContent = Boolean(blob || [scene.year, scene.label, scene.title, scene.description].some((value) => value.trim()));
   return <article className={`story-scene ${themes[scene.theme] || ""} ratio-${scene.mediaRatio}`} data-id={scene.id} data-index={index} data-has-content={String(hasContent)}>
-    <div className="scene-number">{String(index + 1).padStart(2, "0")} <span>STORY</span></div>
+    <div className="scene-number">{String(index + 1).padStart(2, "0")}</div>
     {!readOnly && <button className="drag-handle" type="button" aria-label={`${index + 1}번째 장면 순서 변경. 끌거나 방향키로 이동`} title="끌어서 순서 변경" onPointerDown={onDragStart} onKeyDown={onDragKey}><span className="drag-grip" aria-hidden="true">⋮⋮</span><span>순서 변경</span></button>}
     <div className="scene-text"><div className="scene-meta"><input data-field="year" maxLength={16} aria-label={`${index + 1}번째 장면의 연도`} placeholder="연도 또는 시기" value={scene.year} readOnly={readOnly} tabIndex={readOnly ? -1 : undefined} onChange={(event) => onChange("year", event.target.value)} /><input data-field="label" maxLength={28} aria-label={`${index + 1}번째 장면의 작은 제목`} placeholder="장면 이름" value={scene.label} readOnly={readOnly} tabIndex={readOnly ? -1 : undefined} onChange={(event) => onChange("label", event.target.value)} /></div>
       <Textarea data-field="title" rows={2} maxLength={80} aria-label={`${index + 1}번째 장면의 제목`} placeholder="이 순간의 제목" value={scene.title} readOnly={readOnly} tabIndex={readOnly ? -1 : undefined} onChange={(value) => onChange("title", value)} />

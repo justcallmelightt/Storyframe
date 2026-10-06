@@ -54,3 +54,28 @@ body{background:#f5f6f8}
 .photo-preview-stage{border-radius:10px}
 .dialog-actions button{border-radius:8px}
 @media(max-width:650px){.site-intro{padding-top:36px;padding-bottom:36px}.site-frame{border-radius:10px}.story-scene{border-radius:8px}}
+
+/* The chosen accent is shared by the editor and the reader view. */
+.storyframe-app{--accent-color:#52657d;--accent-ink:#52657d}
+.storyframe-app :where(button,a,input,textarea,select,summary):focus-visible{outline-color:var(--accent-ink)}
+.accent-picker{display:inline-flex;align-items:center;gap:8px;color:#555e6a;font-size:11px;font-weight:650;white-space:nowrap;cursor:pointer}
+.accent-picker input{width:27px;height:27px;padding:2px;border:1px solid #dce1e7;border-radius:8px;background:#fff;cursor:pointer;box-shadow:0 2px 7px #26344812}
+.accent-picker input::-webkit-color-swatch-wrapper{padding:0}
+.accent-picker input::-webkit-color-swatch{border:0;border-radius:5px}
+.accent-picker input::-moz-color-swatch{border:0;border-radius:5px}
+.accent-picker input:active{transform:scale(.92)}
+.site-intro h1 em{color:var(--accent-ink)}
+.story-cover.cover-ivory{background:color-mix(in srgb,var(--accent-color) 8%,#f3f5f8);border-top:3px solid var(--accent-color)}
+.story-cover.cover-ivory:has(.cover-photo:not([hidden])){border-top-color:var(--accent-color)}
+.story-cover #profileName{margin-top:0}
+.chapter-heading h2{margin-top:0}
+.story-ending #endingTitle{margin-top:0}
+.story-scene:not(.theme-dark,.theme-lilac,.theme-warm,.theme-plum){background:color-mix(in srgb,var(--accent-color) 5%,#f2f4f7)}
+.story-scene:nth-child(even):not(.theme-dark,.theme-lilac,.theme-warm,.theme-plum){background:color-mix(in srgb,var(--accent-color) 8%,#edf1f5)}
+.scene-number{color:var(--accent-ink);opacity:1;font-variant-numeric:tabular-nums}
+.scene-tools :is(button,summary):focus-visible,.cover-tools summary:focus-visible{outline-color:var(--accent-ink)}
+.storyframe-app :is(input[type=range],input[type=radio]){accent-color:var(--accent-ink)}
+.add-scene{border-color:color-mix(in srgb,var(--accent-color) 48%,#dce1e7)}
+.add-scene:hover{border-color:var(--accent-ink)}
+.story-scene.drop-before::after,.story-scene.drop-after::after{background:var(--accent-color);box-shadow:0 0 0 4px color-mix(in srgb,var(--accent-color) 14%,transparent)}
+@media(max-width:650px){.accent-picker{gap:5px;font-size:10px}.accent-picker input{width:24px;height:24px}.header-actions{gap:10px}}
