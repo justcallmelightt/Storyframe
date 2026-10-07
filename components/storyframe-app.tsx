@@ -6,8 +6,8 @@ import Link from "next/link";
 /* eslint-disable @next/next/no-img-element */
 import {
   compressPhoto, emptyProfile, emptyScene, loadDocument, loadPhotos, pageLimit, putPhoto,
-  removePhoto, rewriteScenePhotos, saveDocument,
-  type MediaRatio, type PhotoFit, type PhotoKey, type Profile, type Scene,
+  removePhoto, resolveBackground, rewriteScenePhotos, saveDocument,
+  type MediaRatio, type PaletteColor, type PhotoFit, type PhotoKey, type Profile, type Scene,
 } from "@/lib/storyframe-storage";
 
 const themes: Record<string, string> = {
@@ -27,6 +27,39 @@ function readableAccent(hex: string) {
     if ((background + .05) / (value + .05) >= 4.5) return `#${darkened.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
   }
   return "#1d1d1f";
+}
+function backgroundInk(hex: string) {
+  const rgb = [1, 3, 5].map((index) => parseInt(hex.slice(index, index + 2), 16) / 255);
+  const linear = rgb.map((value) => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4);
+  const luminance = .2126 * linear[0] + .7152 * linear[1] + .0722 * linear[2];
+  return luminance > .22 ? "#1d1d1f" : "#ffffff";
+}
+function applyHexInput(event: React.FocusEvent<HTMLInputElement>, current: string, onValid: (color: string) => void) {
+  const color = event.currentTarget.value.trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(color)) onValid(color.toUpperCase());
+  else event.currentTarget.value = current.toUpperCase();
+}
+type BackgroundPickerProps = {
+  value: string; palette: PaletteColor[]; fallback: string;
+  onSelect: (value: string) => void;
+  onPaletteChange: (id: string, color: string) => void;
+  onPaletteAdd: () => void;
+  onPaletteRemove: (id: string) => void;
+};
+function BackgroundPicker({ value, palette, fallback, onSelect, onPaletteChange, onPaletteAdd, onPaletteRemove }: BackgroundPickerProps) {
+  const selectedColor = resolveBackground(value, palette, fallback);
+  return <div className="background-picker">
+    <div className="picker-heading"><strong>페이지 배경</strong><span>색을 누르면 바로 적용됩니다</span></div>
+    <div className="palette-swatches" role="group" aria-label="배경색 팔레트">
+      {palette.map((entry, index) => <button key={entry.id} className={`palette-swatch${value === `palette:${entry.id}` ? " selected" : ""}`} type="button" aria-label={`팔레트 ${index + 1}: ${entry.color}`} aria-pressed={value === `palette:${entry.id}`} style={{ backgroundColor: entry.color }} onClick={() => onSelect(`palette:${entry.id}`)} />)}
+    </div>
+    <label className="custom-background">직접 선택<div className="custom-background-inputs"><input type="color" aria-label="페이지 배경 직접 선택" value={selectedColor} onChange={(event) => onSelect(event.target.value)} /><input key={selectedColor} className="hex-input" type="text" inputMode="text" maxLength={7} defaultValue={selectedColor.toUpperCase()} aria-label="페이지 배경 HEX 코드" onBlur={(event) => applyHexInput(event, selectedColor, onSelect)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /></div></label>
+    <details className="palette-editor"><summary>팔레트 색 편집</summary>
+      <p>팔레트 색을 바꾸면 사용 중인 페이지에도 적용됩니다.</p>
+      <div className="palette-edit-list">{palette.map((entry, index) => <div key={entry.id} className="palette-edit-row"><label>색 {index + 1}<input type="color" aria-label={`팔레트 색 ${index + 1} 수정`} value={entry.color} onChange={(event) => onPaletteChange(entry.id, event.target.value)} /></label><input key={entry.color} className="hex-input" type="text" inputMode="text" maxLength={7} defaultValue={entry.color.toUpperCase()} aria-label={`팔레트 색 ${index + 1} HEX 코드`} onBlur={(event) => applyHexInput(event, entry.color, (color) => onPaletteChange(entry.id, color))} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /><button type="button" aria-label={`팔레트 색 ${index + 1} 삭제`} disabled={palette.length === 1} onClick={() => onPaletteRemove(entry.id)}>삭제</button></div>)}</div>
+      <button className="palette-add" type="button" disabled={palette.length >= 12} onClick={onPaletteAdd}>＋ 팔레트 색 추가</button>
+    </details>
+  </div>;
 }
 const springs = new WeakMap<HTMLElement, { frame: number; offset: number; velocity: number }>();
 function cancelSpring(node: HTMLElement) {
@@ -147,6 +180,25 @@ export function StoryframeApp({ readOnly = false }: { readOnly?: boolean }) {
   }, [scenes]);
 
   const changeProfile = <K extends keyof Profile>(key: K, value: Profile[K]) => setProfile((current) => ({ ...current, [key]: value }));
+  const updatePaletteColor = (id: string, color: string) => setProfile((current) => ({
+    ...current, palette: current.palette.map((entry) => entry.id === id ? { ...entry, color } : entry),
+  }));
+  const addPaletteColor = () => setProfile((current) => current.palette.length >= 12 ? current : ({
+    ...current, palette: [...current.palette, { id: crypto.randomUUID(), color: "#DDE6F3" }],
+  }));
+  const removePaletteColor = (id: string) => {
+    const entry = profile.palette.find((item) => item.id === id);
+    if (!entry || profile.palette.length <= 1) return;
+    const selected = `palette:${id}`;
+    setProfile((current) => ({
+      ...current, palette: current.palette.filter((item) => item.id !== id),
+      coverBackground: current.coverBackground === selected ? entry.color : current.coverBackground,
+      endingBackground: current.endingBackground === selected ? entry.color : current.endingBackground,
+    }));
+    setScenes((current) => current.map((scene) => scene.background === selected ? { ...scene, background: entry.color } : scene));
+  };
+  const selectSceneBackground = (id: string, background: string) => setScenes((current) => current.map((scene) =>
+    scene.id === id ? { ...scene, background, theme: "" } : scene));
   const changeScene = <K extends keyof Scene>(id: string, key: K, value: Scene[K]) => {
     setScenes((current) => current.map((scene) => scene.id === id ? { ...scene, [key]: value } : scene));
   };
@@ -297,6 +349,12 @@ export function StoryframeApp({ readOnly = false }: { readOnly?: boolean }) {
     event.preventDefault();
     void changeOrder(index, Math.min(scenes.length - 1, Math.max(0, index + (event.key === "ArrowUp" ? -1 : 1))));
   };
+  const paletteControls = {
+    palette: profile.palette, onPaletteChange: updatePaletteColor,
+    onPaletteAdd: addPaletteColor, onPaletteRemove: removePaletteColor,
+  };
+  const coverBackground = resolveBackground(profile.coverBackground, profile.palette, "#EEF1F5");
+  const endingBackground = resolveBackground(profile.endingBackground, profile.palette, "#E8ECF1");
 
   if (!ready) return <main className="storyframe-app storyframe-loading">이야기를 여는 중…</main>;
   return <div className={`storyframe-app${readOnly ? " read-mode" : ""}`} style={{ "--accent-color": profile.accentColor, "--accent-ink": readableAccent(profile.accentColor) } as CSSProperties}>
@@ -307,25 +365,37 @@ export function StoryframeApp({ readOnly = false }: { readOnly?: boolean }) {
       <div className="header-actions">{!readOnly && <label className="accent-picker">대표색<input type="color" aria-label="대표색 선택" value={profile.accentColor} onChange={(event) => changeProfile("accentColor", event.target.value)} /></label>}<span id="saveStatus" role="status" hidden={readOnly}>{status}</span><Link className="read-link" href={readOnly ? "/" : "/story"}>{readOnly ? "내 이야기 편집하기 ↗" : <>독자 화면에서 읽기 <span aria-hidden="true">↗</span></>}</Link></div>
     </div></header>
     <main>
-      {!readOnly && <div className="site-intro"><div><h1>당신의 순간을 <em>하나의 웹 이야기</em>로.</h1><p>표지와 시간순 장면을 채우면, 아래로 스크롤하며 읽는 개인 웹사이트가 됩니다. 지금 보이는 페이지에서 바로 수정하세요.</p></div></div>}
+      {!readOnly && <div className="site-intro"><div><h1>당신의 순간을 <em>하나의 웹 이야기</em>로.</h1><p>표지와 시간순 장면을 채우면, 아래로 스크롤하며 읽는 개인 웹사이트가 됩니다. 각 페이지 오른쪽 위의 ‘꾸미기’에서 배경과 사진을 바꿀 수 있습니다.</p></div></div>}
       <div className="site-frame" id="storyWebsite">
-        {!readOnly && <div className="site-frame-bar"><span className="site-frame-domain">나의 이야기 · 웹페이지 편집 중</span><span className="site-frame-scroll">아래로 스크롤하며 작성 ↓</span></div>}
-        <section className={`story-cover cover-${profile.coverTheme || "ivory"} layout-${profile.coverLayout} align-${profile.coverAlign}`} aria-label="이야기 표지">
+        {!readOnly && <div className="site-frame-bar"><span className="site-frame-domain">나의 이야기 · 웹페이지 편집 중</span><span className="site-frame-scroll">각 페이지의 ‘꾸미기’에서 배경색 선택</span></div>}
+        <section className={`story-cover cover-${profile.coverTheme || "ivory"} layout-${profile.coverLayout} align-${profile.coverAlign}`} aria-label="이야기 표지" style={{ backgroundColor: coverBackground, color: coverUrl && profile.coverLayout === "background" ? "#ffffff" : backgroundInk(coverBackground) }}>
           {coverUrl && <div className="cover-photo" id="coverPhoto"><img id="coverImage" src={coverUrl} alt="표지에 넣은 사진" style={{ objectFit: profile.coverPhotoFit, objectPosition: `${profile.coverPhotoX}% ${profile.coverPhotoY}%` }} /></div>}
           <div className="cover-content">
             <input id="profileName" maxLength={24} aria-label="표지에 표시할 이름" placeholder="이름 또는 별명" value={profile.name} readOnly={readOnly} tabIndex={readOnly ? -1 : undefined} onChange={(event) => changeProfile("name", event.target.value)} />
             <Textarea id="profileTitle" rows={2} maxLength={80} aria-label="이야기 제목" placeholder="이야기의 제목을 적어주세요" value={profile.title} readOnly={readOnly} tabIndex={readOnly ? -1 : undefined} onChange={(value) => changeProfile("title", value)} />
             <Textarea id="profileDescription" rows={2} maxLength={200} aria-label="이야기 소개" placeholder="이 이야기를 소개하는 한두 문장" value={profile.description} readOnly={readOnly} tabIndex={readOnly ? -1 : undefined} onChange={(value) => changeProfile("description", value)} />
           </div>
-          {!readOnly && <div className="cover-tools"><label className="cover-upload">＋ 표지 사진 선택<input id="coverFile" type="file" accept="image/jpeg,image/png,image/webp,image/avif" hidden onChange={(event) => photoChanged(event, "cover")} /></label><details className="cover-options"><summary>표지 꾸미기</summary><div className="cover-options-panel"><label>표지 배경<select id="coverTheme" value={profile.coverTheme} onChange={(event) => changeProfile("coverTheme", event.target.value)}><option value="">라이트 그레이</option><option value="dark">차콜</option><option value="warm">샌드</option><option value="lilac">라일락</option><option value="plum">플럼</option></select></label><label>사진 배치<select id="coverLayout" value={profile.coverLayout} onChange={(event) => changeProfile("coverLayout", event.target.value as Profile["coverLayout"])}><option value="split">글 옆에 사진</option><option value="background">사진을 배경으로</option></select></label><label>글 정렬<select id="coverAlign" value={profile.coverAlign} onChange={(event) => changeProfile("coverAlign", event.target.value as Profile["coverAlign"])}><option value="left">왼쪽</option><option value="center">가운데</option></select></label>{coverUrl && <button id="removeCoverPhoto" type="button" onClick={() => void deletePhoto("cover")}>표지 사진 제거</button>}</div></details></div>}
+          {!readOnly && <div className="cover-tools">
+            <label className="cover-upload">＋ 표지 사진 선택<input id="coverFile" type="file" accept="image/jpeg,image/png,image/webp,image/avif" hidden onChange={(event) => photoChanged(event, "cover")} /></label>
+            <details className="cover-options"><summary>이 페이지 꾸미기</summary><div className="cover-options-panel">
+              <BackgroundPicker {...paletteControls} value={profile.coverBackground} fallback="#EEF1F5" onSelect={(background) => setProfile((current) => ({ ...current, coverBackground: background, coverTheme: "" }))} />
+              <label>사진 배치<select id="coverLayout" value={profile.coverLayout} onChange={(event) => changeProfile("coverLayout", event.target.value as Profile["coverLayout"])}><option value="split">글 옆에 사진</option><option value="background">사진을 배경으로</option></select></label>
+              <label>글 정렬<select id="coverAlign" value={profile.coverAlign} onChange={(event) => changeProfile("coverAlign", event.target.value as Profile["coverAlign"])}><option value="left">왼쪽</option><option value="center">가운데</option></select></label>
+              {coverUrl && <button id="removeCoverPhoto" type="button" onClick={() => void deletePhoto("cover")}>표지 사진 제거</button>}
+            </div></details>
+          </div>}
         </section>
         <section className="story-chapters" aria-labelledby="chaptersTitle"><div className="chapter-heading"><h2 id="chaptersTitle">기억하고 싶은 순간들</h2>{!readOnly && <p>각 장면이 이야기의 한 구간이 됩니다. 오른쪽 위 손잡이를 끌어 순서를 바꿀 수 있어요.</p>}</div>
           <div id="sceneList" className="scene-list" ref={listRef} onPointerMove={moveDrag} onPointerUp={(event) => finishDrag(event)} onPointerCancel={(event) => finishDrag(event, true)} onLostPointerCapture={(event) => finishDrag(event, true)}>
-            {scenes.map((scene, index) => <SceneCard key={scene.id} scene={scene} index={index} count={scenes.length} blob={photos.get(index)} readOnly={readOnly} confirmDelete={confirmDelete === scene.id} onChange={(key, value) => changeScene(scene.id, key, value)} onPhotoChange={(event) => photoChanged(event, index)} onPhotoDelete={() => void deletePhoto(index)} onDelete={() => void deleteScene(index)} onDragStart={(event) => startDrag(event, index)} onDragKey={(event) => keyboardDrag(event, index)} />)}
+            {scenes.map((scene, index) => <SceneCard key={scene.id} scene={scene} index={index} count={scenes.length} blob={photos.get(index)} readOnly={readOnly} confirmDelete={confirmDelete === scene.id} palette={profile.palette} onPaletteChange={updatePaletteColor} onPaletteAdd={addPaletteColor} onPaletteRemove={removePaletteColor} onBackgroundChange={(background) => selectSceneBackground(scene.id, background)} onChange={(key, value) => changeScene(scene.id, key, value)} onPhotoChange={(event) => photoChanged(event, index)} onPhotoDelete={() => void deletePhoto(index)} onDelete={() => void deleteScene(index)} onDragStart={(event) => startDrag(event, index)} onDragKey={(event) => keyboardDrag(event, index)} />)}
           </div>
           {!readOnly && scenes.length < pageLimit && <button id="addScene" className="add-scene" type="button" disabled={busy} onClick={() => { setScenes((current) => [...current, emptyScene()]); requestAnimationFrame(() => listRef.current?.lastElementChild?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "center" })); }}>＋ 새 페이지 추가 <span>이야기의 다음 장면</span></button>}
         </section>
-        <section className="story-ending" aria-label="이야기 마지막 문장"><Textarea id="endingTitle" rows={2} maxLength={80} aria-label="마지막 장면 제목" placeholder="마지막에 남길 제목" value={profile.endingTitle} readOnly={readOnly} tabIndex={readOnly ? -1 : undefined} onChange={(value) => changeProfile("endingTitle", value)} /><Textarea id="endingDescription" rows={2} maxLength={200} aria-label="마지막 장면 문장" placeholder="독자에게 남길 한 문장" value={profile.endingDescription} readOnly={readOnly} tabIndex={readOnly ? -1 : undefined} onChange={(value) => changeProfile("endingDescription", value)} /></section>
+        <section className="story-ending" aria-label="이야기 마지막 문장" style={{ backgroundColor: endingBackground, color: backgroundInk(endingBackground) }}>
+          {!readOnly && <details className="ending-options"><summary>이 페이지 꾸미기</summary><div className="ending-options-panel"><BackgroundPicker {...paletteControls} value={profile.endingBackground} fallback="#E8ECF1" onSelect={(background) => changeProfile("endingBackground", background)} /></div></details>}
+          <Textarea id="endingTitle" rows={2} maxLength={80} aria-label="마지막 장면 제목" placeholder="마지막에 남길 제목" value={profile.endingTitle} readOnly={readOnly} tabIndex={readOnly ? -1 : undefined} onChange={(value) => changeProfile("endingTitle", value)} />
+          <Textarea id="endingDescription" rows={2} maxLength={200} aria-label="마지막 장면 문장" placeholder="독자에게 남길 한 문장" value={profile.endingDescription} readOnly={readOnly} tabIndex={readOnly ? -1 : undefined} onChange={(value) => changeProfile("endingDescription", value)} />
+        </section>
       </div>
       {!readOnly && <footer className="editor-footer"><span>글과 사진은 이 브라우저에 자동 저장됩니다. 다른 기기와 동기화되거나 공개되지는 않습니다.</span><Link href="/story">독자 화면에서 읽기 ↗</Link></footer>}
     </main>
@@ -333,21 +403,33 @@ export function StoryframeApp({ readOnly = false }: { readOnly?: boolean }) {
   </div>;
 }
 
-function SceneCard({ scene, index, count, blob, readOnly, confirmDelete, onChange, onPhotoChange, onPhotoDelete, onDelete, onDragStart, onDragKey }: {
+function SceneCard({ scene, index, count, blob, readOnly, confirmDelete, palette, onPaletteChange, onPaletteAdd, onPaletteRemove, onBackgroundChange, onChange, onPhotoChange, onPhotoDelete, onDelete, onDragStart, onDragKey }: {
   scene: Scene; index: number; count: number; blob?: Blob; readOnly: boolean; confirmDelete: boolean;
+  palette: PaletteColor[]; onPaletteChange: (id: string, color: string) => void; onPaletteAdd: () => void; onPaletteRemove: (id: string) => void; onBackgroundChange: (background: string) => void;
   onChange: <K extends keyof Scene>(key: K, value: Scene[K]) => void;
   onPhotoChange: (event: ChangeEvent<HTMLInputElement>) => void; onPhotoDelete: () => void; onDelete: () => void;
   onDragStart: (event: PointerEvent<HTMLButtonElement>) => void; onDragKey: (event: KeyboardEvent<HTMLButtonElement>) => void;
 }) {
   const url = useBlobUrl(blob);
   const hasContent = Boolean(blob || [scene.year, scene.label, scene.title, scene.description].some((value) => value.trim()));
-  return <article className={`story-scene ${themes[scene.theme] || ""} ratio-${scene.mediaRatio}`} data-id={scene.id} data-index={index} data-has-content={String(hasContent)}>
+  const background = resolveBackground(scene.background, palette, "#F0F2F5");
+  return <article className={`story-scene ${themes[scene.theme] || ""} ratio-${scene.mediaRatio}`} data-id={scene.id} data-index={index} data-has-content={String(hasContent)} style={{ backgroundColor: background, color: backgroundInk(background) }}>
     <div className="scene-number">{String(index + 1).padStart(2, "0")}</div>
-    {!readOnly && <button className="drag-handle" type="button" aria-label={`${index + 1}번째 장면 순서 변경. 끌거나 방향키로 이동`} title="끌어서 순서 변경" onPointerDown={onDragStart} onKeyDown={onDragKey}><span className="drag-grip" aria-hidden="true">⋮⋮</span><span>순서 변경</span></button>}
+    {!readOnly && <div className="scene-top-actions">
+      <details className="scene-options"><summary>배경·사진 꾸미기</summary><div className="options-panel">
+        <BackgroundPicker palette={palette} value={scene.background} fallback="#F0F2F5" onSelect={onBackgroundChange} onPaletteChange={onPaletteChange} onPaletteAdd={onPaletteAdd} onPaletteRemove={onPaletteRemove} />
+        <label>사진과 글 비율<select data-field="mediaRatio" value={scene.mediaRatio} onChange={(event) => onChange("mediaRatio", event.target.value as MediaRatio)}><option value="balanced">균형 · 글 55% / 사진 45%</option><option value="text">글 중심 · 글 65% / 사진 35%</option><option value="photo">사진 중심 · 글 40% / 사진 60%</option></select></label>
+        <label>사진 표시<select data-field="photoFit" value={scene.photoFit} onChange={(event) => onChange("photoFit", event.target.value as PhotoFit)}><option value="cover">채워서 자르기</option><option value="contain">전체 보이기</option></select></label>
+        <label>사진 가로 위치<input data-field="photoX" type="range" min="0" max="100" value={scene.photoX} onChange={(event) => onChange("photoX", Number(event.target.value))} /></label>
+        <label>사진 세로 위치<input data-field="photoY" type="range" min="0" max="100" value={scene.photoY} onChange={(event) => onChange("photoY", Number(event.target.value))} /></label>
+        {url && <button className="remove-photo" type="button" onClick={onPhotoDelete}>사진 제거</button>}
+      </div></details>
+      <button className="drag-handle" type="button" aria-label={`${index + 1}번째 장면 순서 변경. 끌거나 방향키로 이동`} title="끌어서 순서 변경" onPointerDown={onDragStart} onKeyDown={onDragKey}><span className="drag-grip" aria-hidden="true">⋮⋮</span><span>순서 변경</span></button>
+    </div>}
     <div className="scene-text"><div className="scene-meta"><input data-field="year" maxLength={16} aria-label={`${index + 1}번째 장면의 연도`} placeholder="연도 또는 시기" value={scene.year} readOnly={readOnly} tabIndex={readOnly ? -1 : undefined} onChange={(event) => onChange("year", event.target.value)} /><input data-field="label" maxLength={28} aria-label={`${index + 1}번째 장면의 작은 제목`} placeholder="장면 이름" value={scene.label} readOnly={readOnly} tabIndex={readOnly ? -1 : undefined} onChange={(event) => onChange("label", event.target.value)} /></div>
       <Textarea data-field="title" rows={2} maxLength={80} aria-label={`${index + 1}번째 장면의 제목`} placeholder="이 순간의 제목" value={scene.title} readOnly={readOnly} tabIndex={readOnly ? -1 : undefined} onChange={(value) => onChange("title", value)} />
       <Textarea data-field="description" rows={3} maxLength={300} aria-label={`${index + 1}번째 장면의 이야기`} placeholder="그때 어떤 일이 있었나요? 짧게 적어보세요." value={scene.description} readOnly={readOnly} tabIndex={readOnly ? -1 : undefined} onChange={(value) => onChange("description", value)} />
-      {!readOnly && <div className="scene-tools"><details className="scene-options"><summary>장면 꾸미기</summary><div className="options-panel"><label>배경 색상<select data-field="theme" value={scene.theme} onChange={(event) => onChange("theme", event.target.value)}><option value="">라이트 그레이</option><option value="story-card-dark">차콜</option><option value="story-card-lilac">라일락</option><option value="story-card-warm">샌드</option><option value="story-card-now">플럼</option></select></label><label>사진과 글 비율<select data-field="mediaRatio" value={scene.mediaRatio} onChange={(event) => onChange("mediaRatio", event.target.value as MediaRatio)}><option value="balanced">균형 · 글 55% / 사진 45%</option><option value="text">글 중심 · 글 65% / 사진 35%</option><option value="photo">사진 중심 · 글 40% / 사진 60%</option></select></label><label>사진 표시<select data-field="photoFit" value={scene.photoFit} onChange={(event) => onChange("photoFit", event.target.value as PhotoFit)}><option value="cover">채워서 자르기</option><option value="contain">전체 보이기</option></select></label><label>사진 가로 위치<input data-field="photoX" type="range" min="0" max="100" value={scene.photoX} onChange={(event) => onChange("photoX", Number(event.target.value))} /></label><label>사진 세로 위치<input data-field="photoY" type="range" min="0" max="100" value={scene.photoY} onChange={(event) => onChange("photoY", Number(event.target.value))} /></label>{url && <button className="remove-photo" type="button" onClick={onPhotoDelete}>사진 제거</button>}</div></details>{count > 1 && <button className="remove-scene" type="button" onClick={onDelete}>{confirmDelete ? "다시 누르면 삭제" : "장면 삭제"}</button>}</div>}
+      {!readOnly && count > 1 && <div className="scene-tools"><button className="remove-scene" type="button" onClick={onDelete}>{confirmDelete ? "다시 누르면 삭제" : "장면 삭제"}</button></div>}
     </div>
     {(url || !readOnly) && <div className="scene-photo">{url ? <img className="scene-photo-image" src={url} alt={`${scene.title || "장면"}에 넣은 사진`} style={{ objectFit: scene.photoFit, objectPosition: `${scene.photoX}% ${scene.photoY}%` }} /> : <div className="scene-photo-empty"><span>이 장면의 사진</span><small>직접 고른 사진이 여기에 들어갑니다</small></div>}{!readOnly && <label className="photo-picker">＋ 사진 {url ? "바꾸기" : "넣기"}<input className="photo-file" type="file" accept="image/jpeg,image/png,image/webp,image/avif" hidden onChange={onPhotoChange} /></label>}</div>}
   </article>;

@@ -6,6 +6,24 @@ export const pageLimit = 30;
 export type PhotoKey = number | "cover";
 export type PhotoFit = "cover" | "contain";
 export type MediaRatio = "balanced" | "text" | "photo";
+export type PaletteColor = { id: string; color: string };
+export const defaultPalette: PaletteColor[] = [
+  { id: "fog", color: "#EEF1F5" }, { id: "sky", color: "#DFE8F3" },
+  { id: "sage", color: "#E1EAE5" }, { id: "sand", color: "#F1E5D9" },
+  { id: "lilac", color: "#E9E3F0" }, { id: "night", color: "#27313E" },
+];
+const isColor = (value: unknown): value is string => typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value);
+const legacySceneColors: Record<string, string> = {
+  "story-card-dark": "#272B31", "story-card-lilac": "#DCD5E9",
+  "story-card-warm": "#EAD3B7", "story-card-now": "#776D8C",
+};
+const legacyCoverColors: Record<string, string> = {
+  dark: "#272B31", warm: "#EAD0AD", lilac: "#DED7E9", plum: "#766C88",
+};
+export function resolveBackground(choice: string, palette: PaletteColor[], fallback: string) {
+  if (choice.startsWith("palette:")) return palette.find((entry) => entry.id === choice.slice(8))?.color || fallback;
+  return isColor(choice) ? choice : fallback;
+}
 export type Scene = {
   id: string;
   year: string;
@@ -13,6 +31,7 @@ export type Scene = {
   title: string;
   description: string;
   theme: string;
+  background: string;
   mediaRatio: MediaRatio;
   photoFit: PhotoFit;
   photoX: number;
@@ -23,6 +42,9 @@ export type Profile = {
   title: string;
   description: string;
   accentColor: string;
+  palette: PaletteColor[];
+  coverBackground: string;
+  endingBackground: string;
   endingTitle: string;
   endingDescription: string;
   coverTheme: string;
@@ -35,11 +57,14 @@ export type Profile = {
 
 export const emptyScene = (): Scene => ({
   id: crypto.randomUUID(), year: "", label: "", title: "", description: "", theme: "",
+  background: "palette:fog",
   mediaRatio: "balanced", photoFit: "cover", photoX: 50, photoY: 50,
 });
 export const emptyProfile: Profile = {
   name: "", title: "", description: "", endingTitle: "", endingDescription: "",
   accentColor: "#52657d",
+  palette: defaultPalette.map((entry) => ({ ...entry })),
+  coverBackground: "palette:fog", endingBackground: "palette:sky",
   coverTheme: "", coverLayout: "split", coverAlign: "left", coverPhotoFit: "cover", coverPhotoX: 50, coverPhotoY: 50,
 };
 
@@ -51,12 +76,23 @@ export function loadDocument(): { scenes: Scene[]; profile: Profile } {
   const scenes = Array.isArray(savedScenes) && savedScenes.length
     ? savedScenes.slice(0, pageLimit).map((value: unknown) => {
       const source = value && typeof value === "object" ? value as Partial<Scene> : {};
-      return { ...emptyScene(), ...source, id: typeof source.id === "string" ? source.id : crypto.randomUUID() };
+      return {
+        ...emptyScene(), ...source,
+        id: typeof source.id === "string" ? source.id : crypto.randomUUID(),
+        background: typeof source.background === "string" ? source.background : legacySceneColors[source.theme || ""] || "palette:fog",
+      };
     })
     : [emptyScene()];
   const savedProfile = readJson(profileKey);
-  const profile = { ...emptyProfile, ...(savedProfile && typeof savedProfile === "object" ? savedProfile as Partial<Profile> : {}) };
+  const sourceProfile = savedProfile && typeof savedProfile === "object" ? savedProfile as Partial<Profile> : {};
+  const profile = { ...emptyProfile, ...sourceProfile };
   if (!/^#[0-9a-fA-F]{6}$/.test(profile.accentColor)) profile.accentColor = emptyProfile.accentColor;
+  profile.palette = Array.isArray(profile.palette)
+    ? profile.palette.slice(0, 12).filter((entry): entry is PaletteColor => Boolean(entry && typeof entry.id === "string" && /^[a-zA-Z0-9-]{1,50}$/.test(entry.id) && isColor(entry.color)))
+    : defaultPalette.map((entry) => ({ ...entry }));
+  if (!profile.palette.length) profile.palette = defaultPalette.map((entry) => ({ ...entry }));
+  profile.coverBackground = typeof sourceProfile.coverBackground === "string" ? sourceProfile.coverBackground : legacyCoverColors[profile.coverTheme] || "palette:fog";
+  profile.endingBackground = typeof sourceProfile.endingBackground === "string" ? sourceProfile.endingBackground : "palette:sky";
   const oldDefaults: Partial<Profile> = {
     name: "나의 이야기", title: "나의 이야기를\n만들어보세요.",
     description: "기억하고 싶은 순간을 한 장씩 담아보세요.",
