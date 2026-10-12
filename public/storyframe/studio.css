@@ -124,3 +124,17 @@ body{background:#f5f6f8}
 .palette-add{margin-top:8px}
 .scene-number{color:inherit;opacity:.62}
 @media(max-width:650px){.scene-top-actions{top:13px;right:16px;gap:5px}.scene-top-actions .scene-options summary{min-height:30px;padding:7px 8px;font-size:9px}.scene-top-actions .drag-handle{padding:7px 8px}.scene-top-actions .options-panel{width:calc(100vw - 64px);max-width:calc(100vw - 64px)}.cover-options-panel{right:0}.ending-options{top:15px;right:12px}.ending-options summary{padding:7px 8px;font-size:9px}}
+
+/* The same recognizable page-control icon opens styling on every page. */
+.cover-options summary.page-style-trigger,.scene-top-actions .scene-options summary.page-style-trigger,.ending-options summary.page-style-trigger{display:grid;place-items:center;width:38px;height:38px;min-height:38px;padding:0;border-radius:10px;transition:transform .15s ease,background-color .15s ease,box-shadow .15s ease}
+.page-style-trigger svg{display:block;width:19px;height:19px}
+.cover-options[open] .page-style-trigger,.scene-options[open] .page-style-trigger,.ending-options[open] .page-style-trigger{background:#fff;box-shadow:0 4px 16px #17223526,inset 0 0 0 1px #aab6c5}
+.cover-options summary.page-style-trigger:active,.scene-top-actions .scene-options summary.page-style-trigger:active,.ending-options summary.page-style-trigger:active{transform:scale(.92)}
+@media(max-width:650px){.cover-options summary.page-style-trigger,.scene-top-actions .scene-options summary.page-style-trigger,.ending-options summary.page-style-trigger{width:36px;height:36px;min-height:36px}}
+
+.cover-upload{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:38px;padding:0 13px;border:1px solid #ffffffd9;border-radius:10px;background:#f9fafceb;color:#263341;box-shadow:0 3px 12px #1722351b,inset 0 1px 0 #fff;font-size:11px;font-weight:720;white-space:nowrap;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)}
+.cover-upload svg{display:block;width:17px;height:17px;flex:none}
+.cover-upload:hover{background:#fff;box-shadow:0 5px 16px #17223524,inset 0 1px 0 #fff}
+.cover-upload:active{transform:scale(.96)}
+.cover-upload:focus-within{outline:2px solid #5d6878;outline-offset:3px}
+@media(max-width:650px){.cover-upload{min-height:36px;padding:0 9px;font-size:10px}.cover-upload svg{width:16px;height:16px}}
