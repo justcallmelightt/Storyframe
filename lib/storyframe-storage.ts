@@ -6,6 +6,18 @@ export const pageLimit = 30;
 export type PhotoKey = number | "cover";
 export type PhotoFit = "cover" | "contain";
 export type MediaRatio = "balanced" | "text" | "photo";
+const allowedPhotoTypes = new Set(["image/jpeg", "image/png", "image/webp", "image/avif"]);
+const maxPhotoBytes = 20 * 1024 * 1024;
+const maxDecodedPixels = 40_000_000;
+export async function isSupportedPhotoFile(file: File): Promise<boolean> {
+  if (!allowedPhotoTypes.has(file.type) || file.size > maxPhotoBytes) return false;
+  const header = new Uint8Array(await file.slice(0, 12).arrayBuffer());
+  if (file.type === "image/jpeg") return header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff;
+  if (file.type === "image/png") return [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a].every((byte, index) => header[index] === byte);
+  if (file.type === "image/webp") return String.fromCharCode(...header.slice(0, 4)) === "RIFF" && String.fromCharCode(...header.slice(8, 12)) === "WEBP";
+  return String.fromCharCode(...header.slice(4, 8)) === "ftyp"
+    && ["avif", "avis"].includes(String.fromCharCode(...header.slice(8, 12)));
+}
 export type PaletteColor = { id: string; color: string };
 export const defaultPalette: PaletteColor[] = [
   { id: "fog", color: "#EEF1F5" }, { id: "sky", color: "#DFE8F3" },
@@ -182,11 +194,17 @@ export async function rewriteScenePhotos(order: number[], oldCount: number): Pro
 }
 
 export async function compressPhoto(file: File): Promise<Blob> {
+  if (!(await isSupportedPhotoFile(file))) {
+    throw new Error("20MB 이하의 JPG, PNG, WebP 또는 AVIF 사진만 사용할 수 있습니다");
+  }
   const url = URL.createObjectURL(file);
   try {
     const image = new Image();
     image.src = url;
     await image.decode();
+    if (!image.naturalWidth || !image.naturalHeight || image.naturalWidth * image.naturalHeight > maxDecodedPixels) {
+      throw new Error("사진의 해상도가 너무 큽니다");
+    }
     const scale = Math.min(1, 1800 / Math.max(image.naturalWidth, image.naturalHeight));
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));

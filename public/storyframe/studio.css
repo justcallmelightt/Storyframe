@@ -138,3 +138,12 @@ body{background:#f5f6f8}
 .cover-upload:active{transform:scale(.96)}
 .cover-upload:focus-within{outline:2px solid #5d6878;outline-offset:3px}
 @media(max-width:650px){.cover-upload{min-height:36px;padding:0 9px;font-size:10px}.cover-upload svg{width:16px;height:16px}}
+
+/* Scroll choreography: reveal each story beat once as it enters the reader's view. */
+.storyframe-app.has-scroll-motion :is(.story-cover,.chapter-heading,.story-scene,.story-ending){opacity:.01;transform:translate3d(0,22px,0);transition:opacity 650ms cubic-bezier(.2,.75,.25,1),transform 760ms cubic-bezier(.2,.75,.25,1)}
+.storyframe-app.has-scroll-motion :is(.story-cover,.chapter-heading,.story-scene,.story-ending).is-in-view{opacity:1;transform:translate3d(0,0,0)}
+.storyframe-app.has-scroll-motion .story-scene:nth-child(even){transition-delay:55ms}
+.story-scene .scene-photo-image{transform:scale(1.015);transition:transform 850ms cubic-bezier(.2,.75,.25,1)}
+.story-scene.is-in-view .scene-photo-image{transform:scale(1)}
+.storyframe-app :is(.story-cover,.story-scene,.story-ending) :is(input,textarea){transition:border-color .2s ease,color .25s ease}
+@media(prefers-reduced-motion:reduce){.storyframe-app.has-scroll-motion :is(.story-cover,.chapter-heading,.story-scene,.story-ending){opacity:1;transform:none;transition:opacity .15s ease}.story-scene .scene-photo-image{transform:none;transition:opacity .15s ease}}

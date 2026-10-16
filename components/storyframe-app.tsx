@@ -5,7 +5,7 @@ import Link from "next/link";
 /* Blob URLs are local browser images; next/image cannot optimize or serve them. */
 /* eslint-disable @next/next/no-img-element */
 import {
-  compressPhoto, emptyProfile, emptyScene, loadDocument, loadPhotos, pageLimit, putPhoto,
+  compressPhoto, emptyProfile, emptyScene, isSupportedPhotoFile, loadDocument, loadPhotos, pageLimit, putPhoto,
   removePhoto, resolveBackground, rewriteScenePhotos, saveDocument,
   type MediaRatio, type PaletteColor, type PhotoFit, type PhotoKey, type Profile, type Scene,
 } from "@/lib/storyframe-storage";
@@ -143,6 +143,7 @@ export function StoryframeApp({ readOnly = false }: { readOnly?: boolean }) {
   const listRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
   const flipRef = useRef<{ tops: Map<string, number>; velocity: number; movedId: string; target: number } | null>(null);
+  const photoSelectionRef = useRef(0);
   const coverUrl = useBlobUrl(photos.get("cover"));
 
   useEffect(() => {
@@ -165,6 +166,22 @@ export function StoryframeApp({ readOnly = false }: { readOnly?: boolean }) {
   useEffect(() => {
     if (readOnly && ready) document.title = `${profile.title.trim().split("\n")[0] || "나의 이야기"} — STORYFRAME`;
   }, [readOnly, ready, profile.title]);
+  useEffect(() => {
+    if (!ready || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const root = document.querySelector(".storyframe-app");
+    if (!root || !("IntersectionObserver" in window)) return;
+    const targets = root.querySelectorAll<HTMLElement>(".story-cover, .chapter-heading, .story-scene, .story-ending");
+    const observer = new IntersectionObserver((entries, activeObserver) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        entry.target.classList.add("is-in-view");
+        activeObserver.unobserve(entry.target);
+      });
+    }, { rootMargin: "0px 0px -9% 0px", threshold: 0.12 });
+    root.classList.add("has-scroll-motion");
+    targets.forEach((target) => observer.observe(target));
+    return () => { observer.disconnect(); root.classList.remove("has-scroll-motion"); };
+  }, [ready, scenes.length]);
   useEffect(() => () => { if (pending) URL.revokeObjectURL(pending.url); }, [pending]);
   useLayoutEffect(() => {
     const flip = flipRef.current;
@@ -202,20 +219,24 @@ export function StoryframeApp({ readOnly = false }: { readOnly?: boolean }) {
   const changeScene = <K extends keyof Scene>(id: string, key: K, value: Scene[K]) => {
     setScenes((current) => current.map((scene) => scene.id === id ? { ...scene, [key]: value } : scene));
   };
-  const photoChanged = (event: ChangeEvent<HTMLInputElement>, key: PhotoKey) => {
+  const photoChanged = async (event: ChangeEvent<HTMLInputElement>, key: PhotoKey) => {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file || busy) return;
-    if (!file.type.startsWith("image/") || file.size > 20 * 1024 * 1024) {
-      setStatus("20MB 이하의 사진을 선택해 주세요");
+    const selection = ++photoSelectionRef.current;
+    let supported = false;
+    try { supported = await isSupportedPhotoFile(file); } catch { /* Reject files the browser cannot inspect. */ }
+    if (!supported) {
+      setStatus("지원되는 JPG, PNG, WebP 또는 AVIF 사진인지 확인해 주세요. 최대 20MB까지 사용할 수 있어요.");
       return;
     }
+    if (selection !== photoSelectionRef.current) return;
     const url = URL.createObjectURL(file);
     setPending({ file, key, url });
     setPendingFit("cover"); setPendingX(50); setPendingY(50);
     requestAnimationFrame(() => dialogRef.current?.showModal());
   };
-  const closePhoto = () => { dialogRef.current?.close(); setPending(null); };
+  const closePhoto = () => { photoSelectionRef.current++; dialogRef.current?.close(); setPending(null); };
   const savePhoto = async () => {
     if (!pending || busy) return;
     setBusy(true); setStatus("사진 저장 중…");
