@@ -5,7 +5,7 @@ import Link from "next/link";
 /* Blob URLs are local browser images; next/image cannot optimize or serve them. */
 /* eslint-disable @next/next/no-img-element */
 import {
-  compressPhoto, emptyProfile, emptyScene, loadDocument, loadPhotos, pageLimit, putPhoto,
+  compressPhoto, emptyProfile, emptyScene, isSupportedPhotoFile, loadDocument, loadPhotos, pageLimit, putPhoto,
   removePhoto, resolveBackground, rewriteScenePhotos, saveDocument,
   type MediaRatio, type PaletteColor, type PhotoFit, type PhotoKey, type Profile, type Scene,
 } from "@/lib/storyframe-storage";
@@ -143,6 +143,7 @@ export function StoryframeApp({ readOnly = false }: { readOnly?: boolean }) {
   const listRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
   const flipRef = useRef<{ tops: Map<string, number>; velocity: number; movedId: string; target: number } | null>(null);
+  const photoSelectionRef = useRef(0);
   const coverUrl = useBlobUrl(photos.get("cover"));
 
   useEffect(() => {
@@ -165,6 +166,22 @@ export function StoryframeApp({ readOnly = false }: { readOnly?: boolean }) {
   useEffect(() => {
     if (readOnly && ready) document.title = `${profile.title.trim().split("\n")[0] || "나의 이야기"} — STORYFRAME`;
   }, [readOnly, ready, profile.title]);
+  useEffect(() => {
+    if (!ready || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const root = document.querySelector(".storyframe-app");
+    if (!root || !("IntersectionObserver" in window)) return;
+    const targets = root.querySelectorAll<HTMLElement>(".story-cover, .chapter-heading, .story-scene, .story-ending");
+    const observer = new IntersectionObserver((entries, activeObserver) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        entry.target.classList.add("is-in-view");
+        activeObserver.unobserve(entry.target);
+      });
+    }, { rootMargin: "0px 0px -9% 0px", threshold: 0.12 });
+    root.classList.add("has-scroll-motion");
+    targets.forEach((target) => observer.observe(target));
+    return () => { observer.disconnect(); root.classList.remove("has-scroll-motion"); };
+  }, [ready, scenes.length]);
   useEffect(() => () => { if (pending) URL.revokeObjectURL(pending.url); }, [pending]);
   useLayoutEffect(() => {
     const flip = flipRef.current;
@@ -202,20 +219,24 @@ export function StoryframeApp({ readOnly = false }: { readOnly?: boolean }) {
   const changeScene = <K extends keyof Scene>(id: string, key: K, value: Scene[K]) => {
     setScenes((current) => current.map((scene) => scene.id === id ? { ...scene, [key]: value } : scene));
   };
-  const photoChanged = (event: ChangeEvent<HTMLInputElement>, key: PhotoKey) => {
+  const photoChanged = async (event: ChangeEvent<HTMLInputElement>, key: PhotoKey) => {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file || busy) return;
-    if (!file.type.startsWith("image/") || file.size > 20 * 1024 * 1024) {
-      setStatus("20MB 이하의 사진을 선택해 주세요");
+    const selection = ++photoSelectionRef.current;
+    let supported = false;
+    try { supported = await isSupportedPhotoFile(file); } catch { /* Reject files the browser cannot inspect. */ }
+    if (!supported) {
+      setStatus("지원되는 JPG, PNG, WebP 또는 AVIF 사진인지 확인해 주세요. 최대 20MB까지 사용할 수 있어요.");
       return;
     }
+    if (selection !== photoSelectionRef.current) return;
     const url = URL.createObjectURL(file);
     setPending({ file, key, url });
     setPendingFit("cover"); setPendingX(50); setPendingY(50);
     requestAnimationFrame(() => dialogRef.current?.showModal());
   };
-  const closePhoto = () => { dialogRef.current?.close(); setPending(null); };
+  const closePhoto = () => { photoSelectionRef.current++; dialogRef.current?.close(); setPending(null); };
   const savePhoto = async () => {
     if (!pending || busy) return;
     setBusy(true); setStatus("사진 저장 중…");
@@ -365,9 +386,9 @@ export function StoryframeApp({ readOnly = false }: { readOnly?: boolean }) {
       <div className="header-actions">{!readOnly && <label className="accent-picker">대표색<input type="color" aria-label="대표색 선택" value={profile.accentColor} onChange={(event) => changeProfile("accentColor", event.target.value)} /></label>}<span id="saveStatus" role="status" hidden={readOnly}>{status}</span><Link className="read-link" href={readOnly ? "/" : "/story"}>{readOnly ? "내 이야기 편집하기 ↗" : <>독자 화면에서 읽기 <span aria-hidden="true">↗</span></>}</Link></div>
     </div></header>
     <main>
-      {!readOnly && <div className="site-intro"><div><h1>당신의 순간을 <em>하나의 웹 이야기</em>로.</h1><p>표지와 시간순 장면을 채우면, 아래로 스크롤하며 읽는 개인 웹사이트가 됩니다. 각 페이지 오른쪽 위의 ‘꾸미기’에서 배경과 사진을 바꿀 수 있습니다.</p></div></div>}
+      {!readOnly && <div className="site-intro"><div><h1>당신의 순간을 <em>하나의 웹 이야기</em>로.</h1><p>표지와 시간순 장면을 채우면, 아래로 스크롤하며 읽는 개인 웹사이트가 됩니다. 각 페이지 오른쪽 위의 조절 아이콘에서 배경과 사진을 바꿀 수 있습니다.</p></div></div>}
       <div className="site-frame" id="storyWebsite">
-        {!readOnly && <div className="site-frame-bar"><span className="site-frame-domain">나의 이야기 · 웹페이지 편집 중</span><span className="site-frame-scroll">각 페이지의 ‘꾸미기’에서 배경색 선택</span></div>}
+        {!readOnly && <div className="site-frame-bar"><span className="site-frame-domain">나의 이야기 · 웹페이지 편집 중</span><span className="site-frame-scroll">각 페이지 오른쪽 위 조절 아이콘에서 배경색 선택</span></div>}
         <section className={`story-cover cover-${profile.coverTheme || "ivory"} layout-${profile.coverLayout} align-${profile.coverAlign}`} aria-label="이야기 표지" style={{ backgroundColor: coverBackground, color: coverUrl && profile.coverLayout === "background" ? "#ffffff" : backgroundInk(coverBackground) }}>
           {coverUrl && <div className="cover-photo" id="coverPhoto"><img id="coverImage" src={coverUrl} alt="표지에 넣은 사진" style={{ objectFit: profile.coverPhotoFit, objectPosition: `${profile.coverPhotoX}% ${profile.coverPhotoY}%` }} /></div>}
           <div className="cover-content">
@@ -376,8 +397,8 @@ export function StoryframeApp({ readOnly = false }: { readOnly?: boolean }) {
             <Textarea id="profileDescription" rows={2} maxLength={200} aria-label="이야기 소개" placeholder="이 이야기를 소개하는 한두 문장" value={profile.description} readOnly={readOnly} tabIndex={readOnly ? -1 : undefined} onChange={(value) => changeProfile("description", value)} />
           </div>
           {!readOnly && <div className="cover-tools">
-            <label className="cover-upload">＋ 표지 사진 선택<input id="coverFile" type="file" accept="image/jpeg,image/png,image/webp,image/avif" hidden onChange={(event) => photoChanged(event, "cover")} /></label>
-            <details className="cover-options"><summary>이 페이지 꾸미기</summary><div className="cover-options-panel">
+            <label className="cover-upload"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5" /><circle cx="8.5" cy="9" r="1.5" /><path d="m4.5 17 5-5 3.5 3 2.5-2.5 4 4" /></svg><span>표지 사진 {coverUrl ? "바꾸기" : "선택"}</span><input id="coverFile" type="file" accept="image/jpeg,image/png,image/webp,image/avif" hidden onChange={(event) => photoChanged(event, "cover")} /></label>
+            <details className="cover-options"><summary className="page-style-trigger" aria-label="표지 배경과 사진 꾸미기" title="표지 배경과 사진 꾸미기"><StyleIcon /></summary><div className="cover-options-panel">
               <BackgroundPicker {...paletteControls} value={profile.coverBackground} fallback="#EEF1F5" onSelect={(background) => setProfile((current) => ({ ...current, coverBackground: background, coverTheme: "" }))} />
               <label>사진 배치<select id="coverLayout" value={profile.coverLayout} onChange={(event) => changeProfile("coverLayout", event.target.value as Profile["coverLayout"])}><option value="split">글 옆에 사진</option><option value="background">사진을 배경으로</option></select></label>
               <label>글 정렬<select id="coverAlign" value={profile.coverAlign} onChange={(event) => changeProfile("coverAlign", event.target.value as Profile["coverAlign"])}><option value="left">왼쪽</option><option value="center">가운데</option></select></label>
@@ -392,7 +413,7 @@ export function StoryframeApp({ readOnly = false }: { readOnly?: boolean }) {
           {!readOnly && scenes.length < pageLimit && <button id="addScene" className="add-scene" type="button" disabled={busy} onClick={() => { setScenes((current) => [...current, emptyScene()]); requestAnimationFrame(() => listRef.current?.lastElementChild?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "center" })); }}>＋ 새 페이지 추가 <span>이야기의 다음 장면</span></button>}
         </section>
         <section className="story-ending" aria-label="이야기 마지막 문장" style={{ backgroundColor: endingBackground, color: backgroundInk(endingBackground) }}>
-          {!readOnly && <details className="ending-options"><summary>이 페이지 꾸미기</summary><div className="ending-options-panel"><BackgroundPicker {...paletteControls} value={profile.endingBackground} fallback="#E8ECF1" onSelect={(background) => changeProfile("endingBackground", background)} /></div></details>}
+          {!readOnly && <details className="ending-options"><summary className="page-style-trigger" aria-label="마지막 페이지 배경 꾸미기" title="마지막 페이지 배경 꾸미기"><StyleIcon /></summary><div className="ending-options-panel"><BackgroundPicker {...paletteControls} value={profile.endingBackground} fallback="#E8ECF1" onSelect={(background) => changeProfile("endingBackground", background)} /></div></details>}
           <Textarea id="endingTitle" rows={2} maxLength={80} aria-label="마지막 장면 제목" placeholder="마지막에 남길 제목" value={profile.endingTitle} readOnly={readOnly} tabIndex={readOnly ? -1 : undefined} onChange={(value) => changeProfile("endingTitle", value)} />
           <Textarea id="endingDescription" rows={2} maxLength={200} aria-label="마지막 장면 문장" placeholder="독자에게 남길 한 문장" value={profile.endingDescription} readOnly={readOnly} tabIndex={readOnly ? -1 : undefined} onChange={(value) => changeProfile("endingDescription", value)} />
         </section>
@@ -416,7 +437,7 @@ function SceneCard({ scene, index, count, blob, readOnly, confirmDelete, palette
   return <article className={`story-scene ${themes[scene.theme] || ""} ratio-${scene.mediaRatio}`} data-id={scene.id} data-index={index} data-has-content={String(hasContent)} style={{ backgroundColor: background, color: backgroundInk(background) }}>
     <div className="scene-number">{String(index + 1).padStart(2, "0")}</div>
     {!readOnly && <div className="scene-top-actions">
-      <details className="scene-options"><summary>배경·사진 꾸미기</summary><div className="options-panel">
+      <details className="scene-options"><summary className="page-style-trigger" aria-label={`${index + 1}번째 장면 배경과 사진 꾸미기`} title="배경과 사진 꾸미기"><StyleIcon /></summary><div className="options-panel">
         <BackgroundPicker palette={palette} value={scene.background} fallback="#F0F2F5" onSelect={onBackgroundChange} onPaletteChange={onPaletteChange} onPaletteAdd={onPaletteAdd} onPaletteRemove={onPaletteRemove} />
         <label>사진과 글 비율<select data-field="mediaRatio" value={scene.mediaRatio} onChange={(event) => onChange("mediaRatio", event.target.value as MediaRatio)}><option value="balanced">균형 · 글 55% / 사진 45%</option><option value="text">글 중심 · 글 65% / 사진 35%</option><option value="photo">사진 중심 · 글 40% / 사진 60%</option></select></label>
         <label>사진 표시<select data-field="photoFit" value={scene.photoFit} onChange={(event) => onChange("photoFit", event.target.value as PhotoFit)}><option value="cover">채워서 자르기</option><option value="contain">전체 보이기</option></select></label>
@@ -433,4 +454,13 @@ function SceneCard({ scene, index, count, blob, readOnly, confirmDelete, palette
     </div>
     {(url || !readOnly) && <div className="scene-photo">{url ? <img className="scene-photo-image" src={url} alt={`${scene.title || "장면"}에 넣은 사진`} style={{ objectFit: scene.photoFit, objectPosition: `${scene.photoX}% ${scene.photoY}%` }} /> : <div className="scene-photo-empty"><span>이 장면의 사진</span><small>직접 고른 사진이 여기에 들어갑니다</small></div>}{!readOnly && <label className="photo-picker">＋ 사진 {url ? "바꾸기" : "넣기"}<input className="photo-file" type="file" accept="image/jpeg,image/png,image/webp,image/avif" hidden onChange={onPhotoChange} /></label>}</div>}
   </article>;
+}
+
+function StyleIcon() {
+  return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M4 7h16M4 12h16M4 17h16" />
+    <circle cx="9" cy="7" r="2" fill="currentColor" stroke="none" />
+    <circle cx="15" cy="12" r="2" fill="currentColor" stroke="none" />
+    <circle cx="10" cy="17" r="2" fill="currentColor" stroke="none" />
+  </svg>;
 }
