@@ -382,13 +382,13 @@ export function StoryframeApp({ readOnly = false }: { readOnly?: boolean }) {
     <a className="skip-link" href="#storyWebsite">{readOnly ? "이야기 본문으로 건너뛰기" : "이야기 편집으로 건너뛰기"}</a>
     <header className="app-header"><div className="header-inner">
       <Link className="brand" href="/" aria-label="STORYFRAME 첫 화면">STORYFRAME</Link>
-      <span className="header-purpose">{readOnly ? "독자 화면" : "나의 이야기 웹사이트 만들기"}</span>
-      <div className="header-actions">{!readOnly && <label className="accent-picker">대표색<input type="color" aria-label="대표색 선택" value={profile.accentColor} onChange={(event) => changeProfile("accentColor", event.target.value)} /></label>}<span id="saveStatus" role="status" hidden={readOnly}>{status}</span><Link className="read-link" href={readOnly ? "/" : "/story"}>{readOnly ? "내 이야기 편집하기 ↗" : <>독자 화면에서 읽기 <span aria-hidden="true">↗</span></>}</Link></div>
+      <span className="header-purpose">{readOnly ? "독자 화면" : "이야기 편집"}</span>
+      <div className="header-actions">{!readOnly && <label className="accent-picker">대표색<input type="color" aria-label="대표색 선택" value={profile.accentColor} onChange={(event) => changeProfile("accentColor", event.target.value)} /></label>}<span id="saveStatus" role="status" hidden={readOnly}>{status}</span><Link className="library-nav" href="/stories">내 이야기</Link><Link className="read-link" href={readOnly ? "/" : "/story"}>{readOnly ? "내 이야기 편집하기 ↗" : <>독자 화면에서 읽기 <span aria-hidden="true">↗</span></>}</Link></div>
     </div></header>
     <main>
-      {!readOnly && <div className="site-intro"><div><h1>당신의 순간을 <em>하나의 웹 이야기</em>로.</h1><p>표지와 시간순 장면을 채우면, 아래로 스크롤하며 읽는 개인 웹사이트가 됩니다. 각 페이지 오른쪽 위의 조절 아이콘에서 배경과 사진을 바꿀 수 있습니다.</p></div></div>}
+      {!readOnly && <div className="editor-workspace-toolbar"><div className="editor-document"><span>편집 중인 웹사이트</span><strong>{profile.title.trim().split("\n")[0] || "제목 없는 이야기"}</strong></div><div className="editor-document-meta"><span>{scenes.length + 2} 페이지</span><span className="editor-meta-dot" aria-hidden="true"></span><span>변경 내용 자동 저장</span></div></div>}
       <div className="site-frame" id="storyWebsite">
-        {!readOnly && <div className="site-frame-bar"><span className="site-frame-domain">나의 이야기 · 웹페이지 편집 중</span><span className="site-frame-scroll">각 페이지 오른쪽 위 조절 아이콘에서 배경색 선택</span></div>}
+        {!readOnly && <div className="site-frame-bar"><span className="site-frame-domain"><span className="editor-live-dot" aria-hidden="true"></span>독자 화면에 그대로 보이는 페이지</span><span className="site-frame-scroll">텍스트를 누르면 바로 편집할 수 있어요</span></div>}
         <section className={`story-cover cover-${profile.coverTheme || "ivory"} layout-${profile.coverLayout} align-${profile.coverAlign}`} aria-label="이야기 표지" style={{ backgroundColor: coverBackground, color: coverUrl && profile.coverLayout === "background" ? "#ffffff" : backgroundInk(coverBackground) }}>
           {coverUrl && <div className="cover-photo" id="coverPhoto"><img id="coverImage" src={coverUrl} alt="표지에 넣은 사진" style={{ objectFit: profile.coverPhotoFit, objectPosition: `${profile.coverPhotoX}% ${profile.coverPhotoY}%` }} /></div>}
           <div className="cover-content">

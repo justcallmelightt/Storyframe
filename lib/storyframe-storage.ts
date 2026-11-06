@@ -1,7 +1,116 @@
 export const sceneKey = "personal-storytelling-scenes-v1";
 export const profileKey = "personal-storytelling-profile-v1";
 const photoDbName = "storyframe-photos-v1";
+const storyListKey = "storyframe-stories-v1";
+const activeStoryKey = "storyframe-active-story-v1";
 export const pageLimit = 30;
+
+export type StorySummary = { id: string; title: string; owner: string; updatedAt: number };
+
+function getActiveStoryId() {
+  return localStorage.getItem(activeStoryKey) || "legacy";
+}
+function storyStorageKey(key: string, storyId = getActiveStoryId()) {
+  return `${key}:${storyId}`;
+}
+function readStorySummaries(): StorySummary[] {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(storyListKey) || "[]");
+    return Array.isArray(value) ? value.filter((item): item is StorySummary => Boolean(item && typeof item.id === "string" && typeof item.title === "string" && typeof item.updatedAt === "number")) : [];
+  } catch { return []; }
+}
+function ensureStoryLibrary(): StorySummary[] {
+  const current = readStorySummaries();
+  if (current.length) return current;
+  const id = "legacy";
+  const oldProfile = localStorage.getItem(profileKey);
+  const oldScenes = localStorage.getItem(sceneKey);
+  if (oldProfile) localStorage.setItem(storyStorageKey(profileKey, id), oldProfile);
+  if (oldScenes) localStorage.setItem(storyStorageKey(sceneKey, id), oldScenes);
+  const summary = { id, title: "나의 이야기", owner: "", updatedAt: Date.now() };
+  localStorage.setItem(storyListKey, JSON.stringify([summary]));
+  localStorage.setItem(activeStoryKey, id);
+  return [summary];
+}
+export function listStories() {
+  if (typeof window === "undefined") return [];
+  return ensureStoryLibrary().sort((a, b) => b.updatedAt - a.updatedAt);
+}
+export function getActiveStory() {
+  const stories = listStories();
+  return stories.find((story) => story.id === getActiveStoryId()) || stories[0];
+}
+export function openStory(id: string) {
+  const stories = listStories();
+  if (!stories.some((story) => story.id === id)) return false;
+  localStorage.setItem(activeStoryKey, id);
+  return true;
+}
+export function createStory() {
+  const stories = listStories();
+  const story = { id: crypto.randomUUID(), title: "이름 없는 이야기", owner: "", updatedAt: Date.now() };
+  localStorage.setItem(storyListKey, JSON.stringify([story, ...stories]));
+  localStorage.setItem(activeStoryKey, story.id);
+  localStorage.setItem(storyStorageKey(profileKey, story.id), JSON.stringify(emptyProfile));
+  localStorage.setItem(storyStorageKey(sceneKey, story.id), JSON.stringify([emptyScene()]));
+  return story;
+}
+export function importStory(profile: Profile, scenes: Scene[]) {
+  const id = crypto.randomUUID();
+  const safeScenes = (Array.isArray(scenes) ? scenes : []).slice(0, pageLimit).map((scene) => ({ ...emptyScene(), ...scene, id: crypto.randomUUID() }));
+  const safeProfile = { ...emptyProfile, ...profile };
+  const story = {
+    id,
+    title: safeProfile.title.trim().split("\n")[0] || safeProfile.name.trim() || "이름 없는 이야기",
+    owner: safeProfile.name.trim(),
+    updatedAt: Date.now(),
+  };
+  const stories = listStories();
+  localStorage.setItem(storyListKey, JSON.stringify([story, ...stories]));
+  localStorage.setItem(activeStoryKey, id);
+  localStorage.setItem(storyStorageKey(profileKey, id), JSON.stringify(safeProfile));
+  localStorage.setItem(storyStorageKey(sceneKey, id), JSON.stringify(safeScenes.length ? safeScenes : [emptyScene()]));
+  return story;
+}
+export function renameStory(id: string, title: string) {
+  const safeTitle = title.trim().slice(0, 80) || "이름 없는 이야기";
+  const next = listStories().map((story) => story.id === id ? { ...story, title: safeTitle, updatedAt: Date.now() } : story);
+  localStorage.setItem(storyListKey, JSON.stringify(next));
+  try {
+    const key = storyStorageKey(profileKey, id);
+    const profile = JSON.parse(localStorage.getItem(key) || "{}");
+    if (profile && typeof profile === "object") localStorage.setItem(key, JSON.stringify({ ...profile, title: safeTitle }));
+  } catch { /* Keep the renamed library title even if the document is malformed. */ }
+}
+export async function deleteStory(id: string) {
+  const stories = listStories();
+  if (stories.length <= 1 || !stories.some((story) => story.id === id)) return false;
+  const remaining = stories.filter((story) => story.id !== id);
+  localStorage.setItem(storyListKey, JSON.stringify(remaining));
+  localStorage.removeItem(storyStorageKey(profileKey, id));
+  localStorage.removeItem(storyStorageKey(sceneKey, id));
+  if (getActiveStoryId() === id) localStorage.setItem(activeStoryKey, remaining[0].id);
+  try {
+    const db = await openPhotoDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction("photos", "readwrite");
+      const request = tx.objectStore("photos").openCursor();
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) return;
+        if (String(cursor.key).startsWith(`${id}:`) || (id === "legacy" && (cursor.key === "cover" || typeof cursor.key === "number"))) cursor.delete();
+        cursor.continue();
+      };
+      tx.oncomplete = () => { db.close(); resolve(); };
+      tx.onerror = () => { db.close(); reject(tx.error); };
+    });
+  } catch { /* Browser photo storage may be unavailable; text data is still removed. */ }
+  if (id === "legacy") {
+    localStorage.removeItem(profileKey);
+    localStorage.removeItem(sceneKey);
+  }
+  return true;
+}
 
 export type PhotoKey = number | "cover";
 export type PhotoFit = "cover" | "contain";
@@ -83,8 +192,9 @@ export const emptyProfile: Profile = {
 function readJson(key: string): unknown {
   try { return JSON.parse(localStorage.getItem(key) || "null"); } catch { return null; }
 }
-export function loadDocument(): { scenes: Scene[]; profile: Profile } {
-  const savedScenes = readJson(sceneKey);
+export function loadDocument(storyId = getActiveStoryId()): { scenes: Scene[]; profile: Profile } {
+  ensureStoryLibrary();
+  const savedScenes = readJson(storyStorageKey(sceneKey, storyId));
   const scenes = Array.isArray(savedScenes) && savedScenes.length
     ? savedScenes.slice(0, pageLimit).map((value: unknown) => {
       const source = value && typeof value === "object" ? value as Partial<Scene> : {};
@@ -95,7 +205,7 @@ export function loadDocument(): { scenes: Scene[]; profile: Profile } {
       };
     })
     : [emptyScene()];
-  const savedProfile = readJson(profileKey);
+  const savedProfile = readJson(storyStorageKey(profileKey, storyId));
   const sourceProfile = savedProfile && typeof savedProfile === "object" ? savedProfile as Partial<Profile> : {};
   const profile = { ...emptyProfile, ...sourceProfile };
   if (!/^#[0-9a-fA-F]{6}$/.test(profile.accentColor)) profile.accentColor = emptyProfile.accentColor;
@@ -118,8 +228,13 @@ export function loadDocument(): { scenes: Scene[]; profile: Profile } {
 }
 export function saveDocument(scenes: Scene[], profile: Profile): boolean {
   try {
-    localStorage.setItem(sceneKey, JSON.stringify(scenes));
-    localStorage.setItem(profileKey, JSON.stringify(profile));
+    const id = getActiveStoryId();
+    localStorage.setItem(storyStorageKey(sceneKey, id), JSON.stringify(scenes));
+    localStorage.setItem(storyStorageKey(profileKey, id), JSON.stringify(profile));
+    const summaries = ensureStoryLibrary().map((story) => story.id === id
+      ? { ...story, title: profile.title.trim().split("\n")[0] || profile.name.trim() || "이름 없는 이야기", owner: profile.name.trim(), updatedAt: Date.now() }
+      : story);
+    localStorage.setItem(storyListKey, JSON.stringify(summaries));
     return true;
   } catch { return false; }
 }
@@ -135,36 +250,40 @@ function openPhotoDb(): Promise<IDBDatabase> {
     request.onerror = () => reject(request.error);
   });
 }
-export async function loadPhotos(count: number): Promise<Map<PhotoKey, Blob>> {
+export async function loadPhotos(count: number, storyId = getActiveStoryId()): Promise<Map<PhotoKey, Blob>> {
   const db = await openPhotoDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction("photos", "readonly");
     const store = tx.objectStore("photos");
     const keys: PhotoKey[] = ["cover", ...Array.from({ length: count }, (_, index) => index)];
-    const requests = keys.map((key) => store.get(key));
+    const requests = keys.map((key) => store.get(`${storyId}:${key}`));
+    const legacyRequests = storyId === "legacy" ? keys.map((key) => store.get(key)) : [];
     tx.oncomplete = () => {
       db.close();
       const result = new Map<PhotoKey, Blob>();
-      requests.forEach((request, index) => { if (request.result instanceof Blob) result.set(keys[index], request.result); });
+      requests.forEach((request, index) => {
+        const blob = request.result instanceof Blob ? request.result : legacyRequests[index]?.result;
+        if (blob instanceof Blob) result.set(keys[index], blob);
+      });
       resolve(result);
     };
     tx.onerror = () => { db.close(); reject(tx.error); };
   });
 }
-export async function putPhoto(key: PhotoKey, blob: Blob): Promise<void> {
+export async function putPhoto(key: PhotoKey, blob: Blob, storyId = getActiveStoryId()): Promise<void> {
   const db = await openPhotoDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction("photos", "readwrite");
-    tx.objectStore("photos").put(blob, key);
+    tx.objectStore("photos").put(blob, `${storyId}:${key}`);
     tx.oncomplete = () => { db.close(); resolve(); };
     tx.onerror = () => { db.close(); reject(tx.error); };
   });
 }
-export async function removePhoto(key: PhotoKey): Promise<void> {
+export async function removePhoto(key: PhotoKey, storyId = getActiveStoryId()): Promise<void> {
   const db = await openPhotoDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction("photos", "readwrite");
-    tx.objectStore("photos").delete(key);
+    tx.objectStore("photos").delete(`${storyId}:${key}`);
     tx.oncomplete = () => { db.close(); resolve(); };
     tx.onerror = () => { db.close(); reject(tx.error); };
   });
@@ -182,10 +301,11 @@ export async function rewriteScenePhotos(order: number[], oldCount: number): Pro
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction("photos", "readwrite");
     const store = tx.objectStore("photos");
+    const storyId = getActiveStoryId();
     for (let index = 0; index < oldCount; index++) {
       const blob = next.get(index);
-      if (blob) store.put(blob, index);
-      else store.delete(index);
+      if (blob) store.put(blob, `${storyId}:${index}`);
+      else store.delete(`${storyId}:${index}`);
     }
     tx.oncomplete = () => { db.close(); resolve(); };
     tx.onerror = () => { db.close(); reject(tx.error); };
